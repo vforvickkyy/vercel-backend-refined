@@ -1,6 +1,7 @@
 export const config = {
+  runtime: "nodejs",
   api: {
-    bodyParser: false, // REQUIRED
+    bodyParser: false,
   },
 };
 
@@ -18,7 +19,7 @@ export default async function handler(req, res) {
     const fileName =
       req.headers["x-file-name"] || `upload-${Date.now()}`;
 
-    // Read raw binary stream
+    // Read raw binary body
     const chunks = [];
     for await (const chunk of req) {
       chunks.push(chunk);
@@ -48,3 +49,4 @@ export default async function handler(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
+
