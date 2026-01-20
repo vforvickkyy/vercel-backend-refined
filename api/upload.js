@@ -1,28 +1,33 @@
 export const config = {
   api: {
-    bodyParser: false, // VERY IMPORTANT
+    bodyParser: false, // REQUIRED
   },
 };
 
 export default async function handler(req, res) {
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-file-name");
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const buffer = Buffer.concat(chunks);
+    const fileName =
+      req.headers["x-file-name"] || `upload-${Date.now()}`;
 
-    const fileName = req.headers["x-file-name"] || `upload-${Date.now()}`;
+    // Read raw binary stream
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const buffer = Buffer.concat(chunks);
 
     const uploadUrl = `https://storage.bunnycdn.com/${process.env.BUNNY_STORAGE_ZONE}/${fileName}`;
 
-    const response = await fetch(uploadUrl, {
+    const bunnyRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
         AccessKey: process.env.BUNNY_API_KEY,
@@ -31,7 +36,10 @@ export default async function handler(req, res) {
       body: buffer,
     });
 
-    if (!response.ok) throw new Error("Bunny upload failed");
+    if (!bunnyRes.ok) {
+      const text = await bunnyRes.text();
+      throw new Error(text || "Bunny upload failed");
+    }
 
     res.status(200).json({
       link: `${process.env.BUNNY_CDN_URL}/${fileName}`,
@@ -40,4 +48,3 @@ export default async function handler(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
-
