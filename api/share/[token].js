@@ -1,13 +1,24 @@
 import supabase from "../../lib/supabase";
 
+export const config = {
+  runtime: "nodejs",
+};
+
 export default async function handler(req, res) {
-  // ✅ CORS HEADERS (REQUIRED)
+  // ✅ CORS (CRITICAL)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
+  }
+
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   const { token } = req.query;
@@ -19,12 +30,12 @@ export default async function handler(req, res) {
       .eq("token", token)
       .single();
 
-    if (!data) {
+    if (error || !data) {
       return res.status(404).json({ error: "Link not found or expired" });
     }
 
-    res.status(200).json(data);
+    return res.status(200).json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 }
