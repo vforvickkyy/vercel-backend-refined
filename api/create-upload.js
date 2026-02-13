@@ -36,37 +36,50 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { fileName, fileSize, fileType } = req.body;
+    const { files } = req.body;
+
+    if (!files || !files.length) {
+      return res.status(400).json({ error: "No files provided" });
+    }
 
     const token = generateToken();
-    const objectKey = `${token}/${fileName}`;
+    const uploadUrls = [];
 
-    const command = new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET,
-      Key: objectKey,
-      ContentType: fileType,
-    });
+    for (let file of files) {
+      const objectKey = `${token}/${file.name}`;
 
-    const uploadUrl = await getSignedUrl(s3, command, {
-      expiresIn: 60 * 5, // 5 minutes
-    });
+      const command = new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET,
+        Key: objectKey,
+        ContentType: file.type || "application/octet-stream",
+      });
 
-    const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
+      const uploadUrl = await getSignedUrl(s3, command, {
+        expiresIn: 60 * 5,
+      });
 
-    await supabase.from("shares").insert({
-      token,
-      file_name: fileName,
-      file_size: fileSize,
-      file_url: publicUrl,
-      expires_at: new Date(
-        Date.now() + 7 * 24 * 60 * 60 * 1000
-      ),
-    });
+      const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
+
+      uploadUrls.push({
+        fileName: file.name,
+        uploadUrl,
+        fileUrl: publicUrl,
+      });
+
+      await supabase.from("shares").insert({
+        token,
+        file_name: file.name,
+        file_size: file.size,
+        file_url: publicUrl,
+        expires_at: new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000
+        ),
+      });
+    }
 
     res.status(200).json({
       token,
-      uploadUrl,
-      publicUrl,
+      uploadUrls,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
