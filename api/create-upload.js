@@ -64,6 +64,7 @@ export default async function handler(req, res) {
 
       const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
 
+      // 🔥 INSERT INSIDE LOOP
       await supabase.from("shares").insert({
         token,
         file_name: file.name,
@@ -86,7 +87,7 @@ export default async function handler(req, res) {
       uploadUrls,
     });
   } catch (err) {
-    console.error("CREATE UPLOAD ERROR:", err);
+    console.error("UPLOAD ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 }
