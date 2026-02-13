@@ -20,12 +20,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-function generateToken(length = 10) {
+function generateToken(length = 8) {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  return Array.from({ length })
-    .map(() => chars[Math.floor(Math.random() * chars.length)])
-    .join("");
+  let token = "";
+  for (let i = 0; i < length; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
 }
 
 export default async function handler(req, res) {
@@ -40,14 +42,15 @@ export default async function handler(req, res) {
   try {
     const { files } = req.body;
 
-    if (!files || !Array.isArray(files) || files.length === 0) {
+    if (!files || !files.length) {
       return res.status(400).json({ error: "No files provided" });
     }
 
+    // 🔥 ONE TOKEN FOR ALL FILES
     const token = generateToken();
 
-    const uploadData = [];
-    const dbRows = [];
+    const uploads = [];
+    const rows = [];
 
     for (const file of files) {
       const objectKey = `${token}/${file.fileName}`;
@@ -55,7 +58,7 @@ export default async function handler(req, res) {
       const command = new PutObjectCommand({
         Bucket: process.env.R2_BUCKET,
         Key: objectKey,
-        ContentType: file.fileType || "application/octet-stream",
+        ContentType: file.fileType,
       });
 
       const uploadUrl = await getSignedUrl(s3, command, {
@@ -64,15 +67,15 @@ export default async function handler(req, res) {
 
       const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
 
-      uploadData.push({
-        fileName: file.fileName,
+      uploads.push({
         uploadUrl,
-        publicUrl,
+        fileName: file.fileName,
       });
 
-      dbRows.push({
+      rows.push({
         token,
         file_name: file.fileName,
+        file_size: file.fileSize,
         file_url: publicUrl,
         expires_at: new Date(
           Date.now() + 7 * 24 * 60 * 60 * 1000
@@ -80,20 +83,20 @@ export default async function handler(req, res) {
       });
     }
 
-    // 🔥 INSERT ALL FILES AT ONCE
-    const { error } = await supabase.from("shares").insert(dbRows);
+    // 🔥 Insert ALL rows at once
+    const { error } = await supabase.from("shares").insert(rows);
 
     if (error) {
-      console.error("SUPABASE ERROR:", error);
+      console.error(error);
       return res.status(500).json({ error: error.message });
     }
 
-    return res.status(200).json({
+    res.status(200).json({
       token,
-      uploads: uploadData,
+      uploads,
     });
   } catch (err) {
-    console.error("CREATE-UPLOAD ERROR:", err);
-    return res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: err.message });
   }
 }
