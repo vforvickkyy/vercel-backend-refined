@@ -29,31 +29,25 @@ function generateToken(length = 10) {
 }
 
 export default async function handler(req, res) {
-  // ✅ CRITICAL CORS FIX
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
-  }
 
   try {
     const { files } = req.body;
 
-    if (!files || !files.length) {
+    if (!files || !Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ error: "No files provided" });
     }
 
     const token = generateToken();
-    const uploads = [];
+
+    const uploadData = [];
+    const dbRows = [];
 
     for (const file of files) {
       const objectKey = `${token}/${file.fileName}`;
@@ -70,31 +64,36 @@ export default async function handler(req, res) {
 
       const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
 
-      uploads.push({
+      uploadData.push({
         fileName: file.fileName,
         uploadUrl,
         publicUrl,
       });
-    }
 
-    // ✅ Insert ALL files into Supabase
-    await supabase.from("shares").insert(
-      uploads.map((u) => ({
+      dbRows.push({
         token,
-        file_name: u.fileName,
-        file_url: u.publicUrl,
+        file_name: file.fileName,
+        file_url: publicUrl,
         expires_at: new Date(
           Date.now() + 7 * 24 * 60 * 60 * 1000
         ),
-      }))
-    );
+      });
+    }
+
+    // 🔥 INSERT ALL FILES AT ONCE
+    const { error } = await supabase.from("shares").insert(dbRows);
+
+    if (error) {
+      console.error("SUPABASE ERROR:", error);
+      return res.status(500).json({ error: error.message });
+    }
 
     return res.status(200).json({
       token,
-      uploads,
+      uploads: uploadData,
     });
   } catch (err) {
-    console.error("UPLOAD ERROR:", err);
+    console.error("CREATE-UPLOAD ERROR:", err);
     return res.status(500).json({ error: err.message });
   }
 }
