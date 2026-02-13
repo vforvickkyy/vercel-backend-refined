@@ -1,6 +1,8 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createClient } from "@supabase/supabase-js";
+import supabase from "../../lib/supabase";
+
+export const config = { runtime: "nodejs" };
 
 const s3 = new S3Client({
   region: "auto",
@@ -11,14 +13,15 @@ const s3 = new S3Client({
   },
 });
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-export const config = {
-  runtime: "nodejs",
-};
+function generateToken(length = 8) {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let token = "";
+  for (let i = 0; i < length; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+}
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -30,37 +33,58 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { token, fileName, fileSize, fileType } = req.body;
+    const { files } = req.body; // ← expect array
 
-    if (!token) {
-      return res.status(400).json({ error: "Token is required" });
+    if (!files || !files.length) {
+      return res.status(400).json({ error: "No files provided" });
     }
 
-    const objectKey = `${token}/${fileName}`;
+    const token = generateToken();
 
-    const command = new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET,
-      Key: objectKey,
-      ContentType: fileType,
-    });
+    const uploadData = [];
+    const supabaseRows = [];
 
-    const uploadUrl = await getSignedUrl(s3, command, {
-      expiresIn: 60 * 10,
-    });
+    for (const file of files) {
+      const objectKey = `${token}/${file.fileName}`;
 
-    const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
+      const command = new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET,
+        Key: objectKey,
+        ContentType: file.fileType,
+      });
 
-    await supabase.from("shares").insert({
-      token,
-      file_name: fileName,
-      file_size: fileSize,
-      file_url: publicUrl,
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
+      const uploadUrl = await getSignedUrl(s3, command, {
+        expiresIn: 60 * 5,
+      });
+
+      const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
+
+      uploadData.push({
+        fileName: file.fileName,
+        uploadUrl,
+      });
+
+      supabaseRows.push({
+        token,
+        file_name: file.fileName,
+        file_size: file.fileSize,
+        file_url: publicUrl,
+        expires_at: new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000
+        ),
+      });
+    }
+
+    // 🔥 Insert ALL files at once
+    const { error } = await supabase.from("shares").insert(supabaseRows);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
 
     return res.status(200).json({
-      uploadUrl,
-      publicUrl,
+      token,
+      uploads: uploadData,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
