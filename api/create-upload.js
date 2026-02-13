@@ -1,31 +1,3 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createClient } from "@supabase/supabase-js";
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-function generateToken(length = 8) {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < length; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
-}
-
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -36,22 +8,20 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { files } = req.body;
-
-    if (!files || !files.length) {
-      return res.status(400).json({ error: "No files provided" });
-    }
+    const { files } = req.body; // 👈 now expect array of files
 
     const token = generateToken();
-    const uploadUrls = [];
 
-    for (let file of files) {
-      const objectKey = `${token}/${file.name}`;
+    const uploadUrls = [];
+    const publicFiles = [];
+
+    for (const file of files) {
+      const objectKey = `${token}/${file.fileName}`;
 
       const command = new PutObjectCommand({
         Bucket: process.env.R2_BUCKET,
         Key: objectKey,
-        ContentType: file.type || "application/octet-stream",
+        ContentType: file.fileType,
       });
 
       const uploadUrl = await getSignedUrl(s3, command, {
@@ -61,21 +31,23 @@ export default async function handler(req, res) {
       const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
 
       uploadUrls.push({
-        fileName: file.name,
+        fileName: file.fileName,
         uploadUrl,
-        fileUrl: publicUrl,
       });
 
-      await supabase.from("shares").insert({
+      publicFiles.push({
         token,
-        file_name: file.name,
-        file_size: file.size,
+        file_name: file.fileName,
+        file_size: file.fileSize,
         file_url: publicUrl,
         expires_at: new Date(
           Date.now() + 7 * 24 * 60 * 60 * 1000
         ),
       });
     }
+
+    // 🔥 INSERT ALL FILES AT ONCE
+    await supabase.from("shares").insert(publicFiles);
 
     res.status(200).json({
       token,
