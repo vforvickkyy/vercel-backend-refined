@@ -23,11 +23,9 @@ const supabase = createClient(
 function generateToken(length = 8) {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < length; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
+  return Array.from({ length }, () =>
+    chars[Math.floor(Math.random() * chars.length)]
+  ).join("");
 }
 
 export default async function handler(req, res) {
@@ -35,22 +33,25 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST")
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
     const { files } = req.body;
 
-    if (!files || !files.length) {
+    if (!files || !Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ error: "No files provided" });
     }
 
-    // 🔥 ONE TOKEN FOR ALL FILES
     const token = generateToken();
 
     const uploads = [];
-    const rows = [];
+    const rowsToInsert = [];
 
     for (const file of files) {
       const objectKey = `${token}/${file.fileName}`;
@@ -68,11 +69,12 @@ export default async function handler(req, res) {
       const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
 
       uploads.push({
-        uploadUrl,
         fileName: file.fileName,
+        uploadUrl,
+        publicUrl,
       });
 
-      rows.push({
+      rowsToInsert.push({
         token,
         file_name: file.fileName,
         file_size: file.fileSize,
@@ -83,20 +85,22 @@ export default async function handler(req, res) {
       });
     }
 
-    // 🔥 Insert ALL rows at once
-    const { error } = await supabase.from("shares").insert(rows);
+    // 🔥 Insert ALL files at once
+    const { error } = await supabase
+      .from("shares")
+      .insert(rowsToInsert);
 
     if (error) {
-      console.error(error);
+      console.error("Supabase insert error:", error);
       return res.status(500).json({ error: error.message });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       token,
       uploads,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("Create upload error:", err);
+    return res.status(500).json({ error: err.message });
   }
 }
