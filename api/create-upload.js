@@ -1,104 +1,123 @@
+import { createClient } from "@supabase/supabase-js";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
 
-export const config = {
-  runtime: "nodejs",
-};
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
+/* =========================
+   ENV VARIABLES REQUIRED
+========================= */
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-function generateToken(length = 8) {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < length; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
-}
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
+
+/* =========================
+   VERCEL BODY PARSER
+========================= */
+
+export const config = {
+  api: {
+    bodyParser: true,
+  },
+};
+
+/* =========================
+   HANDLER
+========================= */
 
 export default async function handler(req, res) {
+  /* ---------- CORS ---------- */
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST")
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
+  if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
-    const { files } = req.body;
+    const { token, fileName, fileSize, fileType } = req.body;
 
-    if (!files || !files.length) {
-      return res.status(400).json({ error: "No files provided" });
+    if (!fileName || !fileSize) {
+      return res.status(400).json({ error: "Missing file data" });
     }
 
-    const token = generateToken();
+    /* =========================
+       TOKEN LOGIC
+    ========================= */
 
-    const uploadData = [];
+    let shareToken = token;
 
-    const uploadUrls = await Promise.all(
-      files.map(async (file) => {
-        const objectKey = `${token}/${file.fileName}`;
+    if (!shareToken) {
+      // Create new share token only once
+      shareToken = crypto.randomBytes(4).toString("hex");
+    }
 
-        const command = new PutObjectCommand({
-          Bucket: process.env.R2_BUCKET,
-          Key: objectKey,
-          ContentType: file.fileType,
-        });
+    /* =========================
+       CREATE R2 SIGNED URL
+    ========================= */
 
-        const uploadUrl = await getSignedUrl(s3, command, {
-          expiresIn: 60 * 10,
-        });
+    const objectKey = `${shareToken}/${fileName}`;
 
-        const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
+    const command = new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: objectKey,
+      ContentType: fileType || "application/octet-stream",
+    });
 
-        uploadData.push({
-          token,
-          file_name: file.fileName,
-          file_size: file.fileSize,
-          file_url: publicUrl,
-          expires_at: new Date(
-            Date.now() + 7 * 24 * 60 * 60 * 1000
-          ),
-        });
+    const uploadUrl = await getSignedUrl(s3, command, {
+      expiresIn: 60 * 10, // 10 minutes
+    });
 
-        return {
-          fileName: file.fileName,
-          uploadUrl,
-          publicUrl,
-        };
-      })
-    );
+    /* =========================
+       INSERT INTO SUPABASE
+    ========================= */
 
-    const { error } = await supabase
-      .from("shares")
-      .insert(uploadData);
+    const publicFileUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
+
+    const { error } = await supabase.from("shares").insert([
+      {
+        token: shareToken,
+        file_name: fileName,
+        file_url: publicFileUrl,
+        file_size: fileSize,
+        expires_at: new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000
+        ).toISOString(),
+      },
+    ]);
 
     if (error) {
       console.error("Supabase insert error:", error);
       return res.status(500).json({ error: error.message });
     }
 
-    res.status(200).json({
-      token,
-      files: uploadUrls,
+    /* =========================
+       SUCCESS RESPONSE
+    ========================= */
+
+    return res.status(200).json({
+      token: shareToken,
+      uploadUrl,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error("Server error:", err);
+    return res.status(500).json({
+      error: "Internal server error",
+    });
   }
 }
