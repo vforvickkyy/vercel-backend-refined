@@ -35,6 +35,7 @@ function generateToken(length = 8) {
 /* ================= HANDLER ================= */
 
 export default async function handler(req, res) {
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -48,13 +49,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { fileName, fileSize, fileType, token } = req.body;
+    const { token, fileName, fileSize, fileType } = req.body;
 
     if (!fileName || !fileSize || !fileType) {
       return res.status(400).json({ error: "Missing file data" });
     }
 
-    // Use provided token OR generate new one
+    // If token passed → reuse it (multi-file upload)
+    // If not → generate new token (first file)
     const shareToken = token || generateToken();
 
     const objectKey = `${shareToken}/${fileName}`;
@@ -62,19 +64,19 @@ export default async function handler(req, res) {
     /* ================= PRESIGNED URL ================= */
 
     const command = new PutObjectCommand({
-  Bucket: process.env.R2_BUCKET,
-  Key: objectKey,
-  ContentType: fileType,
-  ContentDisposition: `attachment; filename="${fileName}"`,
-});
+      Bucket: process.env.R2_BUCKET, // must match Vercel env variable exactly
+      Key: objectKey,
+      ContentType: fileType,
+      ContentDisposition: `attachment; filename="${fileName}"`, // force download
+    });
 
     const uploadUrl = await getSignedUrl(s3, command, {
-      expiresIn: 60 * 5,
+      expiresIn: 60 * 5, // 5 minutes
     });
 
     const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
 
-    /* ================= INSERT SUPABASE ================= */
+    /* ================= INSERT INTO SUPABASE ================= */
 
     const { error } = await supabase.from("shares").insert({
       token: shareToken,
@@ -87,7 +89,7 @@ export default async function handler(req, res) {
     });
 
     if (error) {
-      console.error("Supabase insert error:", error);
+      console.error("Supabase error:", error);
       return res.status(500).json({ error: "Database insert failed" });
     }
 
@@ -98,6 +100,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error("Server error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: err.message });
   }
 }
