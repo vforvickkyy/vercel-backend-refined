@@ -2,7 +2,14 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createClient } from "@supabase/supabase-js";
 
-/* ================= R2 CLIENT ================= */
+export const config = {
+  runtime: "nodejs",
+};
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 const s3 = new S3Client({
   region: "auto",
@@ -13,33 +20,10 @@ const s3 = new S3Client({
   },
 });
 
-/* ================= SUPABASE ================= */
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-/* ================= TOKEN ================= */
-
-function generateToken(length = 8) {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let token = "";
-  for (let i = 0; i < length; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
-}
-
-/* ================= HANDLER ================= */
+/* 🔥 CRITICAL FIX — remove checksum middleware (fixes 403) */
+s3.middlewareStack.remove("flexibleChecksumsMiddleware");
 
 export default async function handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -51,55 +35,58 @@ export default async function handler(req, res) {
   try {
     const { token, fileName, fileSize, fileType } = req.body;
 
-    if (!fileName || !fileSize || !fileType) {
+    if (!fileName || !fileSize) {
       return res.status(400).json({ error: "Missing file data" });
     }
 
-    // If token passed → reuse it (multi-file upload)
-    // If not → generate new token (first file)
-    const shareToken = token || generateToken();
+    /* Generate token only once */
+    const uploadToken =
+      token || Math.random().toString(36).substring(2, 10);
 
-    const objectKey = `${shareToken}/${fileName}`;
+    const cleanFileName = fileName.replace(/\s+/g, "_");
+    const key = `${uploadToken}/${cleanFileName}`;
 
-    /* ================= PRESIGNED URL ================= */
-
+    /* Create presigned PUT URL */
     const command = new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET, // must match Vercel env variable exactly
-      Key: objectKey,
-      ContentType: fileType,
-      ContentDisposition: `attachment; filename="${fileName}"`, // force download
+      Bucket: process.env.R2_BUCKET,
+      Key: key,
+      ContentType: fileType || "application/octet-stream",
     });
 
     const uploadUrl = await getSignedUrl(s3, command, {
-      expiresIn: 60 * 5, // 5 minutes
+      expiresIn: 60 * 10,
     });
 
-    const publicUrl = `${process.env.R2_PUBLIC_URL}/${objectKey}`;
+    /* Public file URL */
+    const publicUrl = `https://${process.env.R2_PUBLIC_DOMAIN}/${key}`;
 
-    /* ================= INSERT INTO SUPABASE ================= */
-
-    const { error } = await supabase.from("shares").insert({
-      token: shareToken,
-      file_name: fileName,
-      file_size: fileSize,
-      file_url: publicUrl,
-      expires_at: new Date(
-        Date.now() + 7 * 24 * 60 * 60 * 1000
-      ).toISOString(),
-    });
+    /* Insert into Supabase */
+    const { error } = await supabase
+      .from("uploads")
+      .insert([
+        {
+          token: uploadToken,
+          file_name: fileName,
+          file_url: publicUrl,
+          file_size: fileSize,
+          expires_at: new Date(
+            Date.now() + 7 * 24 * 60 * 60 * 1000
+          ),
+        },
+      ]);
 
     if (error) {
-      console.error("Supabase error:", error);
+      console.error(error);
       return res.status(500).json({ error: "Database insert failed" });
     }
 
     return res.status(200).json({
-      token: shareToken,
+      token: uploadToken,
       uploadUrl,
-      publicUrl,
+      fileUrl: publicUrl,
     });
   } catch (err) {
     console.error("Server error:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
