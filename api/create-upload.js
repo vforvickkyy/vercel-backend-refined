@@ -62,10 +62,11 @@ export default async function handler(req, res) {
     /* ================= PRESIGNED URL ================= */
 
     const command = new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET, // 🚨 THIS MUST EXIST
-      Key: objectKey,
-      ContentType: fileType,
-    });
+  Bucket: process.env.R2_BUCKET,
+  Key: objectKey,
+  ContentType: fileType,
+  ContentDisposition: `attachment; filename="${fileName}"`,
+});
 
     const uploadUrl = await getSignedUrl(s3, command, {
       expiresIn: 60 * 5,
