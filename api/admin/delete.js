@@ -17,21 +17,27 @@ export default async function handler(req, res) {
   try {
     const { id } = req.body;
 
+    if (!id) {
+      return res.status(400).json({ message: "Missing id" });
+    }
+
     const supabase = createClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    // 1️⃣ Get file info first
+    // 1️⃣ Get file record first
     const { data: file, error: fetchError } = await supabase
       .from("shares")
       .select("*")
       .eq("id", id)
       .single();
 
-    if (fetchError) throw fetchError;
+    if (fetchError || !file) {
+      return res.status(404).json({ message: "File not found in DB" });
+    }
 
-    // 2️⃣ Setup R2 client
+    // 2️⃣ Setup R2
     const s3 = new S3Client({
       region: "auto",
       endpoint: process.env.R2_ENDPOINT,
@@ -41,7 +47,7 @@ export default async function handler(req, res) {
       }
     });
 
-    // Extract object key from file_url
+    // Extract object key correctly
     const key = file.file_url.split("/").pop();
 
     // 3️⃣ Delete from R2
@@ -53,12 +59,17 @@ export default async function handler(req, res) {
     );
 
     // 4️⃣ Delete from Supabase
-    await supabase
+    const { error: deleteError } = await supabase
       .from("shares")
       .delete()
       .eq("id", id);
 
-    return res.status(200).json({ success: true });
+    if (deleteError) throw deleteError;
+
+    return res.status(200).json({
+      success: true,
+      deletedId: id
+    });
 
   } catch (err) {
     return res.status(500).json({ error: err.message });
