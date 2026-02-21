@@ -80,7 +80,7 @@ export default async function handler(req, res) {
     // ------------------------
     await s3.send(
       new DeleteObjectCommand({
-        Bucket: process.env.R2_BUCKET,
+        Bucket: process.env.R2_BUCKET_NAME,
         Key: key
       })
     );
