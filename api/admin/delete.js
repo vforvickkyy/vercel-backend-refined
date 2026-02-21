@@ -26,43 +26,33 @@ export default async function handler(req, res) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    // 1️⃣ Get file record first
-    const { data: file, error: fetchError } = await supabase
-      .from("shares")
-      .select("*")
-      .eq("id", id)
-      .single();
+    // 1️⃣ Fetch file
+const { data: file, error: fetchError } = await supabase
+  .from("shares")
+  .select("*")
+  .eq("id", Number(id))
+  .single();
 
-    if (fetchError || !file) {
-      return res.status(404).json({ message: "File not found in DB" });
-    }
+if (!file) {
+  return res.status(404).json({ message: "File not found" });
+}
 
-    // 2️⃣ Setup R2
-    const s3 = new S3Client({
-      region: "auto",
-      endpoint: process.env.R2_ENDPOINT,
-      credentials: {
-        accessKeyId: process.env.R2_ACCESS_KEY,
-        secretAccessKey: process.env.R2_SECRET_KEY
-      }
-    });
+// 2️⃣ Extract correct key
+const key = new URL(file.file_url).pathname.substring(1);
 
-    // Extract object key correctly
-    const key = file.file_url.split("/").pop();
+// 3️⃣ Delete from R2
+await s3.send(
+  new DeleteObjectCommand({
+    Bucket: process.env.R2_BUCKET,
+    Key: key
+  })
+);
 
-    // 3️⃣ Delete from R2
-    await s3.send(
-      new DeleteObjectCommand({
-        Bucket: process.env.R2_BUCKET,
-        Key: key
-      })
-    );
-
-    // 4️⃣ Delete from Supabase
-    const { error: deleteError } = await supabase
-      .from("shares")
-      .delete()
-      .eq("id", id);
+// 4️⃣ Delete from DB
+await supabase
+  .from("shares")
+  .delete()
+  .eq("id", Number(id));
 
     if (deleteError) throw deleteError;
 
