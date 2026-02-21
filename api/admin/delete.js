@@ -2,6 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 export default async function handler(req, res) {
+  // ------------------------
+  // CORS
+  // ------------------------
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -10,6 +13,9 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
+  // ------------------------
+  // Auth
+  // ------------------------
   if (req.headers.authorization !== process.env.ADMIN_SECRET) {
     return res.status(403).json({ message: "Unauthorized" });
   }
@@ -18,50 +24,86 @@ export default async function handler(req, res) {
     const { id } = req.body;
 
     if (!id) {
-      return res.status(400).json({ message: "Missing id" });
+      return res.status(400).json({ message: "Missing file ID" });
     }
 
+    const numericId = Number(id);
+
+    if (isNaN(numericId)) {
+      return res.status(400).json({ message: "Invalid ID format" });
+    }
+
+    // ------------------------
+    // Supabase Client
+    // ------------------------
     const supabase = createClient(
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    // 1️⃣ Fetch file
-const { data: file, error: fetchError } = await supabase
-  .from("shares")
-  .select("*")
-  .eq("id", Number(id))
-  .single();
+    // ------------------------
+    // Fetch File Record First
+    // ------------------------
+    const { data: file, error: fetchError } = await supabase
+      .from("shares")
+      .select("*")
+      .eq("id", numericId)
+      .single();
 
-if (!file) {
-  return res.status(404).json({ message: "File not found" });
-}
+    if (fetchError || !file) {
+      return res.status(404).json({ message: "File not found in database" });
+    }
 
-// 2️⃣ Extract correct key
-const key = new URL(file.file_url).pathname.substring(1);
+    // ------------------------
+    // Setup R2 Client
+    // ------------------------
+    const s3 = new S3Client({
+      region: "auto",
+      endpoint: process.env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY,
+        secretAccessKey: process.env.R2_SECRET_KEY
+      }
+    });
 
-// 3️⃣ Delete from R2
-await s3.send(
-  new DeleteObjectCommand({
-    Bucket: process.env.R2_BUCKET,
-    Key: key
-  })
-);
+    // ------------------------
+    // Extract Correct Object Key
+    // ------------------------
+    // Example file_url:
+    // https://pub-xxxx.r2.dev/folder/file.mp4
+    // We extract: folder/file.mp4
 
-// 4️⃣ Delete from DB
-await supabase
-  .from("shares")
-  .delete()
-  .eq("id", Number(id));
+    const key = new URL(file.file_url).pathname.substring(1);
 
-    if (deleteError) throw deleteError;
+    // ------------------------
+    // Delete From R2
+    // ------------------------
+    await s3.send(
+      new DeleteObjectCommand({
+        Bucket: process.env.R2_BUCKET,
+        Key: key
+      })
+    );
+
+    // ------------------------
+    // Delete From Supabase
+    // ------------------------
+    const { error: deleteError } = await supabase
+      .from("shares")
+      .delete()
+      .eq("id", numericId);
+
+    if (deleteError) {
+      return res.status(500).json({ error: deleteError.message });
+    }
 
     return res.status(200).json({
       success: true,
-      deletedId: id
+      deletedId: numericId
     });
 
   } catch (err) {
+    console.error("Delete error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
