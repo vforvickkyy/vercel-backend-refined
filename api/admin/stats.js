@@ -1,9 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
+const { createClient } = require("@supabase/supabase-js");
 
-export default async function handler(req, res) {
-  // =========================
-  // CORS (MUST BE FIRST)
-  // =========================
+module.exports = async function handler(req, res) {
+  // ================= CORS =================
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader(
@@ -16,21 +14,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    // =========================
-    // AUTH CHECK
-    // =========================
     if (req.headers.authorization !== process.env.ADMIN_SECRET) {
       return res.status(403).json({ message: "Unauthorized" });
-    }
-
-    // =========================
-    // INIT SUPABASE SAFELY
-    // =========================
-    if (
-      !process.env.SUPABASE_URL ||
-      !process.env.SUPABASE_SERVICE_ROLE_KEY
-    ) {
-      return res.status(500).json({ message: "Missing Supabase ENV" });
     }
 
     const supabase = createClient(
@@ -38,9 +23,6 @@ export default async function handler(req, res) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
 
-    // =========================
-    // FETCH SHARES TABLE
-    // =========================
     const { data: shares, error } = await supabase
       .from("shares")
       .select("*");
@@ -52,9 +34,6 @@ export default async function handler(req, res) {
     const safeShares = shares || [];
     const totalFiles = safeShares.length;
 
-    // =========================
-    // LAST 24 HOURS CALCULATION
-    // =========================
     const now = new Date();
     const last24 = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
@@ -66,9 +45,7 @@ export default async function handler(req, res) {
       .filter((s) => new Date(s.created_at) >= last24)
       .reduce((sum, s) => sum + (s.file_size || 0), 0);
 
-    // =========================
-    // R2 ANALYTICS
-    // =========================
+    // ========== R2 ANALYTICS ==========
     let storageBytes = 0;
     let classAOps = 0;
     let classBOps = 0;
@@ -83,21 +60,10 @@ export default async function handler(req, res) {
           viewer {
             accounts(filter: {accountTag: "${process.env.R2_ACCOUNT_ID}"}) {
               r2StorageAdaptiveGroups(limit: 1) {
-                sum {
-                  payloadSize
-                }
+                sum { payloadSize }
               }
-              r2OperationsAdaptiveGroups(
-                filter: {
-                  datetime_geq: "${last24.toISOString()}"
-                  datetime_leq: "${now.toISOString()}"
-                }
-                limit: 1
-              ) {
-                sum {
-                  classA
-                  classB
-                }
+              r2OperationsAdaptiveGroups(limit: 1) {
+                sum { classA classB }
               }
             }
           }
@@ -135,35 +101,19 @@ export default async function handler(req, res) {
         }
       }
     } catch (err) {
-      console.log("R2 analytics failed safely:", err);
+      console.log("R2 error:", err);
     }
 
-    // =========================
-    // FORMAT STORAGE
-    // =========================
     const formatBytes = (bytes) => {
-      if (!bytes || bytes === 0) return "0 MB";
-
+      if (!bytes) return "0 MB";
       const gb = bytes / 1024 / 1024 / 1024;
-
-      if (gb >= 1) {
-        return gb.toFixed(2) + " GB";
-      } else {
-        return (bytes / 1024 / 1024).toFixed(2) + " MB";
-      }
+      return gb >= 1
+        ? gb.toFixed(2) + " GB"
+        : (bytes / 1024 / 1024).toFixed(2) + " MB";
     };
 
-    const storageUsedFormatted = formatBytes(storageBytes);
-    const storageLast24hFormatted = formatBytes(storageLast24hBytes);
-
-    // =========================
-    // RECENT ACTIVITY
-    // =========================
     const recentActivity = safeShares
-      .sort(
-        (a, b) =>
-          new Date(b.created_at) - new Date(a.created_at)
-      )
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 10)
       .map((s) => ({
         file: s.file_name,
@@ -171,19 +121,16 @@ export default async function handler(req, res) {
         time: new Date(s.created_at).toLocaleString(),
       }));
 
-    // =========================
-    // FINAL RESPONSE
-    // =========================
     return res.status(200).json({
       totalFiles,
-      totalLinks: totalFiles, // since shares = links
-      totalUsers: totalFiles, // placeholder until users table added
-      liveUsers: 12, // placeholder for realtime later
+      totalLinks: totalFiles,
+      totalUsers: totalFiles,
+      liveUsers: 12,
 
       linksLast24h,
-      storageLast24hFormatted,
+      storageLast24hFormatted: formatBytes(storageLast24hBytes),
 
-      storageUsedFormatted,
+      storageUsedFormatted: formatBytes(storageBytes),
       classAOps,
       classBOps,
 
@@ -193,4 +140,4 @@ export default async function handler(req, res) {
     console.error("STATS CRASH:", err);
     return res.status(500).json({ message: "Server crash" });
   }
-}
+};
