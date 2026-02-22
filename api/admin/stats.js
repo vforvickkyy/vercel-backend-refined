@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import fetch from "node-fetch";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -6,9 +7,6 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
-  // ============================
-  // CORS CONFIG
-  // ============================
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader(
@@ -21,134 +19,122 @@ export default async function handler(req, res) {
   }
 
   try {
-    // ============================
-    // AUTH CHECK
-    // ============================
     if (req.headers.authorization !== process.env.ADMIN_SECRET) {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    // ============================
-    // FETCH SHARES
-    // ============================
-    const { data: shares, error } = await supabase
+    // ================================
+    // GET SHARES DATA
+    // ================================
+    const { data: shares } = await supabase
       .from("shares")
       .select("*");
 
-    if (error) {
-      console.error(error);
-      return res.status(500).json({ message: "Database error" });
-    }
-
     const safeShares = shares || [];
-
-    // ============================
-    // BASIC COUNTS
-    // ============================
-
     const totalFiles = safeShares.length;
-    const totalLinks = safeShares.length; // same for now
+    const totalLinks = totalFiles;
+    const totalUsers = totalFiles; // FUTURE: replace with distinct users
 
-    // 🔹 FUTURE: Replace with distinct user_id count
-    const totalUsers = totalFiles;
+    // ================================
+    // R2 GRAPHQL QUERY
+    // ================================
+    const query = `
+    {
+      viewer {
+        accounts(filter: {accountTag: "${process.env.R2_ACCOUNT_ID}"}) {
+          r2StorageAdaptiveGroups(limit: 1) {
+            sum {
+              payloadSize
+            }
+          }
+          r2OperationsAdaptiveGroups(limit: 1) {
+            sum {
+              classA
+              classB
+            }
+          }
+        }
+      }
+    }`;
 
-    // ============================
-    // STORAGE CALCULATION (GB)
-    // ============================
-
-    const totalStorageBytes = safeShares.reduce(
-      (sum, file) => sum + (file.file_size || 0),
-      0
+    const response = await fetch(
+      "https://api.cloudflare.com/client/v4/graphql",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query }),
+      }
     );
 
-    const storageUsedGB = Number(
-      (totalStorageBytes / 1024 / 1024 / 1024).toFixed(2)
-    );
+    const result = await response.json();
 
-    // ============================
-    // LAST 24 HOURS
-    // ============================
+    const accountData =
+      result?.data?.viewer?.accounts?.[0] || {};
 
+    const storageBytes =
+      accountData?.r2StorageAdaptiveGroups?.[0]?.sum
+        ?.payloadSize || 0;
+
+    const classAOps =
+      accountData?.r2OperationsAdaptiveGroups?.[0]?.sum
+        ?.classA || 0;
+
+    const classBOps =
+      accountData?.r2OperationsAdaptiveGroups?.[0]?.sum
+        ?.classB || 0;
+
+    // ================================
+    // STORAGE FORMAT
+    // ================================
+    let storageUsedFormatted;
+    let storageUsedGB = storageBytes / 1024 / 1024 / 1024;
+
+    if (storageUsedGB >= 1) {
+      storageUsedFormatted =
+        storageUsedGB.toFixed(2) + " GB";
+    } else {
+      storageUsedFormatted =
+        (storageBytes / 1024 / 1024).toFixed(2) + " MB";
+    }
+
+    // ================================
+    // AVERAGE STORAGE PER FILE
+    // ================================
+    const averageStorage =
+      totalFiles > 0
+        ? storageBytes / totalFiles
+        : 0;
+
+    const averageStorageFormatted =
+      averageStorage > 1024 * 1024 * 1024
+        ? (averageStorage / 1024 / 1024 / 1024).toFixed(2) +
+          " GB"
+        : (averageStorage / 1024 / 1024).toFixed(2) +
+          " MB";
+
+    // ================================
+    // LAST 24 HOURS FROM SHARES
+    // ================================
     const now = new Date();
-    const last24 = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last24 = new Date(
+      now.getTime() - 24 * 60 * 60 * 1000
+    );
 
-    const sharesLast24 = safeShares.filter(
+    const linksLast24h = safeShares.filter(
       (s) => new Date(s.created_at) >= last24
-    );
+    ).length;
 
-    const linksLast24h = sharesLast24.length;
-
-    const storageLast24h = Number(
-      (
-        sharesLast24.reduce(
-          (sum, s) => sum + (s.file_size || 0),
-          0
-        ) /
-        1024 /
-        1024 /
-        1024
-      ).toFixed(2)
-    );
-
-    // ============================
-    // UPLOADS BY DAY (7 days)
-    // ============================
-
-    const uploadsByDay = [];
-
-    for (let i = 6; i >= 0; i--) {
-      const day = new Date();
-      day.setDate(now.getDate() - i);
-
-      const start = new Date(day.setHours(0, 0, 0, 0));
-      const end = new Date(day.setHours(23, 59, 59, 999));
-
-      const count = safeShares.filter((s) => {
-        const d = new Date(s.created_at);
-        return d >= start && d <= end;
-      }).length;
-
-      uploadsByDay.push({
-        label: start.toLocaleDateString("en-US", {
-          weekday: "short",
-        }),
-        value: count,
-      });
-    }
-
-    // ============================
-    // UPLOADS BY HOUR (Last 24h)
-    // ============================
-
-    const uploadsByHour = [];
-
-    for (let i = 23; i >= 0; i--) {
-      const hourStart = new Date(
-        now.getTime() - i * 60 * 60 * 1000
-      );
-      const hourEnd = new Date(
-        hourStart.getTime() + 60 * 60 * 1000
-      );
-
-      const count = safeShares.filter((s) => {
-        const d = new Date(s.created_at);
-        return d >= hourStart && d < hourEnd;
-      }).length;
-
-      uploadsByHour.push({
-        label: hourStart.getHours() + ":00",
-        value: count,
-      });
-    }
-
-    // ============================
-    // RECENT ACTIVITY (Last 10)
-    // ============================
-
+    // ================================
+    // RECENT ACTIVITY
+    // ================================
     const recentActivity = safeShares
       .sort(
         (a, b) =>
-          new Date(b.created_at) - new Date(a.created_at)
+          new Date(b.created_at) -
+          new Date(a.created_at)
       )
       .slice(0, 10)
       .map((s) => ({
@@ -158,36 +144,20 @@ export default async function handler(req, res) {
         time: new Date(s.created_at).toLocaleString(),
       }));
 
-    // ============================
-    // MOCK R2 DATA (Replace later)
-    // ============================
-
-    const classAOps = 0;
-    const classBOps = 0;
-
-    // ============================
-    // RESPONSE
-    // ============================
-
     return res.status(200).json({
       totalUsers,
       totalFiles,
       totalLinks,
-
-      storageUsedGB,
-
       linksLast24h,
-      storageLast24h,
-
       liveUsers: 12, // mock
 
-      uploadsByDay,
-      uploadsByHour,
-
-      recentActivity,
+      storageUsedFormatted,
+      averageStorageFormatted,
 
       classAOps,
       classBOps,
+
+      recentActivity,
     });
   } catch (err) {
     console.error(err);
