@@ -13,7 +13,16 @@ export default async function handler(req, res) {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization"
   );
+const allowedOrigins = [
+  "https://k4c4zc.csb.app",
+  "https://your-production-admin-domain.com"
+];
 
+const origin = req.headers.origin;
+
+if (allowedOrigins.includes(origin)) {
+  res.setHeader("Access-Control-Allow-Origin", origin);
+}
   // ✅ Handle preflight BEFORE anything else
   if (req.method === "OPTIONS") {
     return res.status(200).end();
