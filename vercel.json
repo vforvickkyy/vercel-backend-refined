@@ -5,15 +5,15 @@
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "*"
+          "value": "https://k4c4zc.csb.app"
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "GET,POST,OPTIONS"
+          "value": "GET,POST,PUT,DELETE,OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, x-file-name"
+          "value": "Content-Type, Authorization"
         }
       ]
     }
