@@ -4,7 +4,18 @@ import supabase from "../lib/supabase";
 export default async function handler(req, res) {
 
   // ✅ ALWAYS FIRST: CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
+export default async function handler(req, res) {
+  const allowedOrigins = [
+    "https://k4c4zc.csb.app"
+  ];
+
+  const origin = req.headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Methods",
     "GET,POST,PUT,DELETE,OPTIONS"
@@ -13,10 +24,10 @@ export default async function handler(req, res) {
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization"
   );
-const allowedOrigins = [
-  "https://k4c4zc.csb.app",
-  "https://your-production-admin-domain.com"
-];
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
 const origin = req.headers.origin;
 
