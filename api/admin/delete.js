@@ -1,4 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
+import verifyAdmin from "../lib/verifyAdmin";
+import supabase from "../lib/supabase";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 export default async function handler(req, res) {
@@ -14,10 +15,12 @@ export default async function handler(req, res) {
   }
 
   // ------------------------
-  // Auth
+  // 🔐 Supabase Admin Auth
   // ------------------------
-  if (req.headers.authorization !== process.env.ADMIN_SECRET) {
-    return res.status(403).json({ message: "Unauthorized" });
+  try {
+    await verifyAdmin(req);
+  } catch (err) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
   try {
@@ -32,14 +35,6 @@ export default async function handler(req, res) {
     if (isNaN(numericId)) {
       return res.status(400).json({ message: "Invalid ID format" });
     }
-
-    // ------------------------
-    // Supabase Client
-    // ------------------------
-    const supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
 
     // ------------------------
     // Fetch File Record First
@@ -69,10 +64,6 @@ export default async function handler(req, res) {
     // ------------------------
     // Extract Correct Object Key
     // ------------------------
-    // Example file_url:
-    // https://pub-xxxx.r2.dev/folder/file.mp4
-    // We extract: folder/file.mp4
-
     const key = new URL(file.file_url).pathname.substring(1);
 
     // ------------------------

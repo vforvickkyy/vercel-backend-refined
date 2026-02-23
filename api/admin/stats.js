@@ -1,4 +1,5 @@
-const { createClient } = require("@supabase/supabase-js");
+const verifyAdmin = require("../lib/verifyAdmin").default;
+const supabase = require("../lib/supabase").default;
 
 module.exports = async function handler(req, res) {
   // ================= CORS =================
@@ -14,15 +15,14 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    if (req.headers.authorization !== process.env.ADMIN_SECRET) {
-      return res.status(403).json({ message: "Unauthorized" });
+    // 🔐 Supabase Admin Verification
+    try {
+      await verifyAdmin(req);
+    } catch (err) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
-
+    // ================= DATABASE =================
     const { data: shares, error } = await supabase
       .from("shares")
       .select("*");
@@ -45,7 +45,7 @@ module.exports = async function handler(req, res) {
       .filter((s) => new Date(s.created_at) >= last24)
       .reduce((sum, s) => sum + (s.file_size || 0), 0);
 
-    // ========== R2 ANALYTICS ==========
+    // ================= R2 ANALYTICS =================
     let storageBytes = 0;
     let classAOps = 0;
     let classBOps = 0;
@@ -75,7 +75,7 @@ module.exports = async function handler(req, res) {
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+              Authorization: \`Bearer ${process.env.CLOUDFLARE_API_TOKEN}\`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ query }),
@@ -88,16 +88,13 @@ module.exports = async function handler(req, res) {
           const account = json.data.viewer.accounts[0];
 
           storageBytes =
-            account?.r2StorageAdaptiveGroups?.[0]?.sum
-              ?.payloadSize || 0;
+            account?.r2StorageAdaptiveGroups?.[0]?.sum?.payloadSize || 0;
 
           classAOps =
-            account?.r2OperationsAdaptiveGroups?.[0]?.sum
-              ?.classA || 0;
+            account?.r2OperationsAdaptiveGroups?.[0]?.sum?.classA || 0;
 
           classBOps =
-            account?.r2OperationsAdaptiveGroups?.[0]?.sum
-              ?.classB || 0;
+            account?.r2OperationsAdaptiveGroups?.[0]?.sum?.classB || 0;
         }
       }
     } catch (err) {
@@ -136,6 +133,7 @@ module.exports = async function handler(req, res) {
 
       recentActivity,
     });
+
   } catch (err) {
     console.error("STATS CRASH:", err);
     return res.status(500).json({ message: "Server crash" });

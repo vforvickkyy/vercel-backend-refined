@@ -1,24 +1,24 @@
-import { createClient } from "@supabase/supabase-js";
+import verifyAdmin from "../lib/verifyAdmin";
+import supabase from "../lib/supabase";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
-  if (req.headers.authorization !== process.env.ADMIN_SECRET) {
-    return res.status(403).json({ message: "Unauthorized" });
+  // 🔐 NEW: Supabase Admin Verification
+  try {
+    await verifyAdmin(req);
+  } catch (err) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
   try {
-    const supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
-
+    // ✅ USING existing supabase instance (service role)
     const { data, error } = await supabase
       .from("shares")
       .select("created_at");
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
 
     const grouped = {};
 
-    data.forEach(row => {
+    data.forEach((row) => {
       const day = new Date(row.created_at)
         .toISOString()
         .split("T")[0];
@@ -36,7 +36,6 @@ export default async function handler(req, res) {
     });
 
     return res.status(200).json(grouped);
-
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
