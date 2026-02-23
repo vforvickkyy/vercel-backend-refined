@@ -16,6 +16,10 @@ if (req.method === "OPTIONS") {
   return res.status(200).end();
 }
 
+if (req.method === "OPTIONS") {
+  return res.status(200).end();
+}
+
   // 🔐 NEW: Supabase Admin Verification
   try {
     await verifyAdmin(req);

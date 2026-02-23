@@ -16,11 +16,6 @@ res.setHeader(
 if (req.method === "OPTIONS") {
   return res.status(200).end();
 }
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
   try {
     // 🔐 Supabase Admin Verification
     try {
