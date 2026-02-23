@@ -2,32 +2,27 @@ import verifyAdmin from "../lib/verifyAdmin";
 import supabase from "../lib/supabase";
 
 export default async function handler(req, res) {
+
+  // ✅ ALWAYS FIRST: CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
-res.setHeader(
-  "Access-Control-Allow-Methods",
-  "GET,POST,PUT,DELETE,OPTIONS"
-);
-res.setHeader(
-  "Access-Control-Allow-Headers",
-  "Content-Type, Authorization"
-);
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,DELETE,OPTIONS"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
 
-if (req.method === "OPTIONS") {
-  return res.status(200).end();
-}
-
-if (req.method === "OPTIONS") {
-  return res.status(200).end();
-}
-
-  // 🔐 Admin Verification
-  try {
-    await verifyAdmin(req);
-  } catch (err) {
-    return res.status(401).json({ message: "Unauthorized" });
+  // ✅ Handle preflight BEFORE anything else
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
   }
 
   try {
+    // ✅ THEN verify admin
+    await verifyAdmin(req);
+
     const { data, error } = await supabase
       .from("shares")
       .select("*")
@@ -36,7 +31,8 @@ if (req.method === "OPTIONS") {
     if (error) throw error;
 
     return res.status(200).json(data);
+
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(401).json({ message: err.message });
   }
 }
