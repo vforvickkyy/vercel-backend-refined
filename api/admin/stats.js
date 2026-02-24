@@ -17,13 +17,13 @@ module.exports = async function handler(req, res) {
     return res.status(200).end();
   }
 
-  try {
-    // 🔐 VERIFY ADMIN
-    try {
-      await verifyAdmin(req);
-    } catch (err) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
+  //try {
+  // // 🔐 VERIFY ADMIN
+  //  try {
+  //    await verifyAdmin(req);
+  //  } catch (err) {
+  //    return res.status(401).json({ message: "Unauthorized" });
+  // }
 
     // ================= DATABASE =================
     const { data: shares, error } = await supabase
