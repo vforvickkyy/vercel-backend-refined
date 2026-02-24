@@ -5,13 +5,9 @@ export const config = {
 };
 
 export default async function handler(req, res) {
-  // ✅ CORS (CRITICAL)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -27,9 +23,10 @@ export default async function handler(req, res) {
     const { data, error } = await supabase
       .from("shares")
       .select("*")
-      .eq("token", token);
+      .eq("token", token)
+      .order("created_at", { ascending: false });
 
-    if (error || !data) {
+    if (error || !data || data.length === 0) {
       return res.status(404).json({ error: "Link not found or expired" });
     }
 
