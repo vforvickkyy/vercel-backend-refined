@@ -1,4 +1,3 @@
-const verifyAdmin = require("../lib/verifyAuth").default;
 const supabase = require("../lib/supabase").default;
 
 module.exports = async function handler(req, res) {
@@ -17,14 +16,7 @@ module.exports = async function handler(req, res) {
     return res.status(200).end();
   }
 
-  //try {
-  // // 🔐 VERIFY ADMIN
-  //  try {
-  //    await verifyAdmin(req);
-  //  } catch (err) {
-  //    return res.status(401).json({ message: "Unauthorized" });
-  // }
-
+  try {
     // ================= DATABASE =================
     const { data: shares, error } = await supabase
       .from("shares")
@@ -102,7 +94,7 @@ module.exports = async function handler(req, res) {
         }
       }
     } catch (err) {
-      console.log("R2 error:", err);
+      console.log("R2 analytics skipped");
     }
 
     const formatBytes = (bytes) => {
