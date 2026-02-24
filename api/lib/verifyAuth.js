@@ -17,10 +17,10 @@ export default async function verifyAdmin(req) {
   if (error || !user) {
     throw new Error("Invalid token");
   }
-  
+
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("is_admin")
+    .select("is_admin") // ✅ FIXED
     .eq("id", user.id)
     .single();
 
