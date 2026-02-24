@@ -1,4 +1,4 @@
-import verifyAdmin from "../lib/verifyAdmin";
+import verifyAdmin from "../lib/verifyAuth";
 import supabase from "../lib/supabase";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 

@@ -1,5 +1,5 @@
-import verifyAdmin from "../../lib/verifyAdmin";
-import supabase from "../../lib/supabase";
+import verifyAdmin from "../../lib/verifyAuth.js";
+import supabase from "../../lib/supabase.js";
 
 export default async function handler(req, res) {
   // =============================

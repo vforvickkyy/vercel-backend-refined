@@ -1,4 +1,4 @@
-const verifyAdmin = require("../lib/verifyAdmin").default;
+const verifyAdmin = require("../lib/verifyAuth").default;
 const supabase = require("../lib/supabase").default;
 
 module.exports = async function handler(req, res) {

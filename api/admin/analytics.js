@@ -1,4 +1,4 @@
-import verifyAdmin from "../lib/verifyAdmin";
+import verifyAdmin from "../lib/verifyAuth";
 import supabase from "../lib/supabase";
 
 export default async function handler(req, res) {
