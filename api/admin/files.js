@@ -1,9 +1,8 @@
-import verifyAdmin from "../../lib/verifyAuth.js";
 import supabase from "../../lib/supabase.js";
 
 export default async function handler(req, res) {
   // =============================
-  // CORS (IMPORTANT FOR CSB)
+  // CORS
   // =============================
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader(
@@ -25,12 +24,7 @@ export default async function handler(req, res) {
 
   try {
     // =============================
-    // VERIFY ADMIN
-    // =============================
-    await verifyAdmin(req);
-
-    // =============================
-    // FETCH SHARES
+    // FETCH SHARES (NO AUTH FOR NOW)
     // =============================
     const { data, error } = await supabase
       .from("shares")
@@ -44,10 +38,10 @@ export default async function handler(req, res) {
 
     return res.status(200).json(data || []);
   } catch (err) {
-    console.error("Auth error:", err);
+    console.error("Server error:", err);
 
-    return res.status(401).json({
-      message: err.message || "Unauthorized",
+    return res.status(500).json({
+      message: "Internal Server Error",
     });
   }
 }
