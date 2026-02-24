@@ -11,6 +11,16 @@ const s3 = new S3Client({
 });
 
 export default async function handler(req, res) {
+
+  // ✅ ADD THIS BLOCK
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
     const { key, fileName } = req.query;
 
@@ -25,11 +35,13 @@ export default async function handler(req, res) {
     });
 
     const signedUrl = await getSignedUrl(s3, command, {
-      expiresIn: 60, // 1 min
+      expiresIn: 60,
     });
 
-    res.status(200).json({ url: signedUrl });
+    return res.status(200).json({ url: signedUrl });
+
   } catch (err) {
-    res.status(500).json({ error: "Download failed" });
+    console.error("DOWNLOAD ERROR:", err);
+    return res.status(500).json({ error: err.message });
   }
 }
