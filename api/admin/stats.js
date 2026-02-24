@@ -3,21 +3,22 @@ const supabase = require("../lib/supabase").default;
 
 module.exports = async function handler(req, res) {
   // ================= CORS =================
-res.setHeader("Access-Control-Allow-Origin", "*");
-res.setHeader(
-  "Access-Control-Allow-Methods",
-  "GET,POST,PUT,DELETE,OPTIONS"
-);
-res.setHeader(
-  "Access-Control-Allow-Headers",
-  "Content-Type, Authorization"
-);
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,DELETE,OPTIONS"
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization"
+  );
 
-if (req.method === "OPTIONS") {
-  return res.status(200).end();
-}
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+
   try {
-    // 🔐 Supabase Admin Verification
+    // 🔐 VERIFY ADMIN
     try {
       await verifyAdmin(req);
     } catch (err) {
@@ -30,6 +31,7 @@ if (req.method === "OPTIONS") {
       .select("*");
 
     if (error) {
+      console.error("DB Error:", error);
       return res.status(500).json({ message: "Database error" });
     }
 
@@ -77,7 +79,7 @@ if (req.method === "OPTIONS") {
           {
             method: "POST",
             headers: {
-              Authorization: \`Bearer ${process.env.CLOUDFLARE_API_TOKEN}\`,
+              Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ query }),
